@@ -33,6 +33,9 @@ from torch.nn import CrossEntropyLoss
 
 from .file_utils import cached_path
 
+from torch.distributed import get_world_size, get_rank
+
+
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 
                     datefmt = '%m/%d/%Y %H:%M:%S',
                     level = logging.INFO)
@@ -462,13 +465,20 @@ class PreTrainedBertModel(nn.Module):
             *inputs, **kwargs: additional input for the specific Bert class
                 (ex: num_labels for BertForSequenceClassification)
         """
+        print("| build pretrained model ")
+        print("| model name is {}, from cached {}".format(pretrained_model_name, cache_dir))
+        # print(oo)
+
         if pretrained_model_name in PRETRAINED_MODEL_ARCHIVE_MAP:
             archive_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name]
         else:
             archive_file = pretrained_model_name
         # redirect to the cache, if necessary
+        print("| archive_file is {}".format(archive_file))
         try:
             resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
+            print("| resolved_archive_file is {}".format(resolved_archive_file))
+            # print(oo)
         except FileNotFoundError:
             logger.error(
                 "Model name '{}' was not found in model name list ({}). "
@@ -489,7 +499,7 @@ class PreTrainedBertModel(nn.Module):
         else:
             # Extract archive to temp dir
             tempdir = tempfile.mkdtemp()
-            logger.info("extracting archive file {} to temp dir {}".format(
+            logger.info("| extracting archive file {} to temp dir {}".format(
                 resolved_archive_file, tempdir))
             with tarfile.open(resolved_archive_file, 'r:gz') as archive:
                 archive.extractall(tempdir)
@@ -529,6 +539,47 @@ class PreTrainedBertModel(nn.Module):
         if tempdir:
             # Clean up temp dir
             shutil.rmtree(tempdir)
+        return model
+
+    @classmethod
+    def build_model(cls, args, *inputs, **kwargs):
+        pre_dir = args.pre_dir
+        config_file = os.path.join(pre_dir, CONFIG_NAME)
+        config = BertConfig.from_json_file(config_file)
+
+        model = cls(config, *inputs, **kwargs)
+        pretrained_weight = os.path.join(pre_dir, WEIGHTS_NAME)
+        state_dict = torch.load(pretrained_weight)
+
+        missing_keys = []
+        unexpected_keys = []
+        error_msgs = []
+
+        # copy state_dict so _load_from_state_dict can modify it
+        metadata = getattr(state_dict, '_metadata', None)
+        state_dict = state_dict.copy()
+        if metadata is not None:
+            state_dict._metadata = metadata
+
+        def load(module, prefix=''):
+            local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+            module._load_from_state_dict(
+                state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
+            for name, child in module._modules.items():
+                if child is not None:
+                    load(child, prefix + name + '.')
+
+        load(model, prefix='' if hasattr(model, 'bert') else 'bert.')
+        if len(missing_keys) > 0:
+            # logger.info("Weights of {} not initialized from pretrained model: {}".format(
+            #     model.__class__.__name__, missing_keys))
+            print("| Weights of {} not initialized from pretrained model: {}".format(
+                model.__class__.__name__, missing_keys))
+        if len(unexpected_keys) > 0:
+            # logger.info("Weights from pretrained model not used in {}: {}".format(
+                # model.__class__.__name__, unexpected_keys))
+            print("Weights from pretrained model not used in {}: {}".format(
+                model.__class__.__name__, unexpected_keys))
         return model
 
 
@@ -932,6 +983,11 @@ class BertForQuestionAnswering(PreTrainedBertModel):
     """
     def __init__(self, config):
         super(BertForQuestionAnswering, self).__init__(config)
+        # 一个标准的transformer模型
+        # 包括word embedding + position embedding + type embedding
+        # block = self-attention + ffn  * 12.。。
+        # pool 第一个class token  === hid-embed -》 hid-embed
+        # 
         self.bert = BertModel(config)
         # TODO check with Google if it's normal there is no dropout on the token classifier of SQuAD in the TF version
         # self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -939,6 +995,7 @@ class BertForQuestionAnswering(PreTrainedBertModel):
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, start_positions=None, end_positions=None):
+        # print("| , input size is {}".format(len(input_ids)))
         sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         logits = self.qa_outputs(sequence_output)
         start_logits, end_logits = logits.split(1, dim=-1)

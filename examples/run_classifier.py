@@ -155,8 +155,8 @@ class MnliProcessor(DataProcessor):
             if i == 0:
                 continue
             guid = "%s-%s" % (set_type, line[0])
-            text_a = line[8])
-            text_b = line[9])
+            text_a = line[8]
+            text_b = line[9]
             label = line[-1]
             examples.append(
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))

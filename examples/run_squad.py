@@ -26,6 +26,7 @@ import math
 import os
 import random
 from tqdm import tqdm, trange
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -41,6 +42,8 @@ logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(messa
                     level = logging.INFO)
 logger = logging.getLogger(__name__)
 
+PYTORCH_PRETRAINED_BERT_CACHE = Path(os.getenv('PYTORCH_PRETRAINED_BERT_CACHE',
+                                               Path.home() / '.pytorch_pretrained_bert'))
 
 class SquadExample(object):
     """A single training/test example for simple sequence classification."""
@@ -114,10 +117,14 @@ def read_squad_examples(input_file, is_training):
         return False
 
     examples = []
+    # wikipidia的一篇文章
     for entry in input_data:
+        # 一篇文章中的一段内容
         for paragraph in entry["paragraphs"]:
+            # 文章的具体内容
             paragraph_text = paragraph["context"]
             doc_tokens = []
+            # 从char的index到word的index，需要考虑空白的影响
             char_to_word_offset = []
             prev_is_whitespace = True
             for c in paragraph_text:
@@ -129,23 +136,32 @@ def read_squad_examples(input_file, is_training):
                     else:
                         doc_tokens[-1] += c
                     prev_is_whitespace = False
+                # 每次读一个char都需要记录一次
                 char_to_word_offset.append(len(doc_tokens) - 1)
-
+            # 遍历每一个 问题-答案
             for qa in paragraph["qas"]:
                 qas_id = qa["id"]
+                # 问题的内容
                 question_text = qa["question"]
                 start_position = None
                 end_position = None
                 orig_answer_text = None
                 if is_training:
+                    # 训练数据集只有一个答案
+                    # dev数据集每一个问题有三个答案，但是有些答案是相同的
                     if len(qa["answers"]) != 1:
                         raise ValueError(
                             "For training, each question should have exactly 1 answer.")
+                    # 答案
                     answer = qa["answers"][0]
                     orig_answer_text = answer["text"]
+                    # 答案开始位置
                     answer_offset = answer["answer_start"]
+                    # 答案的字符长度
                     answer_length = len(orig_answer_text)
+                    # 答案开始的token位置
                     start_position = char_to_word_offset[answer_offset]
+                    # 答案接受的token的位置
                     end_position = char_to_word_offset[answer_offset + answer_length - 1]
                     # Only add answers where the text can be exactly recovered from the
                     # document. If this CAN'T happen it's likely due to weird Unicode
@@ -153,21 +169,27 @@ def read_squad_examples(input_file, is_training):
                     #
                     # Note that this means for training mode, every example is NOT
                     # guaranteed to be preserved.
+
+                    # 提取出来的答案token
                     actual_text = " ".join(doc_tokens[start_position:(end_position + 1)])
+
+                    # 这个是真的原始答案
+                    # whitespace_tokenize 仅仅去除了空格，然后split一个array
                     cleaned_answer_text = " ".join(
                         whitespace_tokenize(orig_answer_text))
                     if actual_text.find(cleaned_answer_text) == -1:
+                        # 应该不会出现吧
                         logger.warning("Could not find answer: '%s' vs. '%s'",
                                            actual_text, cleaned_answer_text)
                         continue
 
                 example = SquadExample(
-                    qas_id=qas_id,
-                    question_text=question_text,
-                    doc_tokens=doc_tokens,
-                    orig_answer_text=orig_answer_text,
-                    start_position=start_position,
-                    end_position=end_position)
+                    qas_id=qas_id, # 问答对的唯一id
+                    question_text=question_text, # 问题字符串
+                    doc_tokens=doc_tokens, # passage的token数组
+                    orig_answer_text=orig_answer_text, # 原始文本字符串
+                    start_position=start_position, # 开始位置，在token数组中的位置
+                    end_position=end_position) # 结束位置，在token数组中的位置
                 examples.append(example)
     return examples
 
@@ -180,12 +202,16 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
 
     features = []
     for (example_index, example) in enumerate(examples):
+        # 相当于bpe，返回一个token的数组
         query_tokens = tokenizer.tokenize(example.question_text)
-
+        # 截断
         if len(query_tokens) > max_query_length:
             query_tokens = query_tokens[0:max_query_length]
-
+        
+        # bpe后的token的在原始token的位置
         tok_to_orig_index = []
+
+        # 原始的token的位置在bpe token下的位置
         orig_to_tok_index = []
         all_doc_tokens = []
         for (i, token) in enumerate(example.doc_tokens):
@@ -198,11 +224,16 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
         tok_start_position = None
         tok_end_position = None
         if is_training:
+            # 在bpe token中的开始位置
             tok_start_position = orig_to_tok_index[example.start_position]
+
             if example.end_position < len(example.doc_tokens) - 1:
+                # 在bpe中的end position
                 tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
             else:
+                # 那么就是最后一个位置
                 tok_end_position = len(all_doc_tokens) - 1
+            # 获得更加精确的position
             (tok_start_position, tok_end_position) = _improve_answer_span(
                 all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
                 example.orig_answer_text)
@@ -213,10 +244,14 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
         # We can have documents that are longer than the maximum sequence length.
         # To deal with this we do a sliding window approach, where we take chunks
         # of the up to our max length with a stride of `doc_stride`.
+        # 就是新的类，里面有start和lenght的属性
         _DocSpan = collections.namedtuple(  # pylint: disable=invalid-name
             "DocSpan", ["start", "length"])
         doc_spans = []
         start_offset = 0
+        # 如果passage的内容太大的话，就需要不断的分段
+        # 第一段 0 ---  min(max_token_for_doc, len(all_doc_tokens)) 这是长度
+        # 第二段 0+doc_stride - min(max_token_for_doc, len(all_doc_tokens))
         while start_offset < len(all_doc_tokens):
             length = len(all_doc_tokens) - start_offset
             if length > max_tokens_for_doc:
@@ -227,6 +262,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             start_offset += min(length, doc_stride)
 
         for (doc_span_index, doc_span) in enumerate(doc_spans):
+            # 构造【cls】query【seq】passage的文本属性
             tokens = []
             token_to_orig_map = {}
             token_is_max_context = {}
@@ -241,16 +277,20 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
 
             for i in range(doc_span.length):
                 split_token_index = doc_span.start + i
-                token_to_orig_map[len(tokens)] = tok_to_orig_index[split_token_index]
 
+                # 在联合的句子中一个映射。 ind -》 原始文本的index
+                token_to_orig_map[len(tokens)] = tok_to_orig_index[split_token_index]
+                # 判断当前的词是否在中间的位置
                 is_max_context = _check_is_max_context(doc_spans, doc_span_index,
                                                        split_token_index)
                 token_is_max_context[len(tokens)] = is_max_context
+                # 继续构造联合的文本
                 tokens.append(all_doc_tokens[split_token_index])
+                # 开始第二句话的构造
                 segment_ids.append(1)
             tokens.append("[SEP]")
             segment_ids.append(1)
-
+            # 获得 token - idx
             input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
             # The mask has 1 for real tokens and 0 for padding tokens. Only real
@@ -258,6 +298,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             input_mask = [1] * len(input_ids)
 
             # Zero-pad up to the sequence length.
+            # pad 到最长句子数
             while len(input_ids) < max_seq_length:
                 input_ids.append(0)
                 input_mask.append(0)
@@ -272,53 +313,56 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             if is_training:
                 # For training, if our document chunk does not contain an annotation
                 # we throw it out, since there is nothing to predict.
+
+                # 抛弃不包括的chunk
                 doc_start = doc_span.start
                 doc_end = doc_span.start + doc_span.length - 1
                 if (example.start_position < doc_start or
                         example.end_position < doc_start or
                         example.start_position > doc_end or example.end_position > doc_end):
                     continue
-
+                # +2 一个是clf，一个是seq
                 doc_offset = len(query_tokens) + 2
+                # 表示在【passage】中的位置  passage是一个chunk
                 start_position = tok_start_position - doc_start + doc_offset
                 end_position = tok_end_position - doc_start + doc_offset
 
-            if example_index < 20:
-                logger.info("*** Example ***")
-                logger.info("unique_id: %s" % (unique_id))
-                logger.info("example_index: %s" % (example_index))
-                logger.info("doc_span_index: %s" % (doc_span_index))
-                logger.info("tokens: %s" % " ".join(tokens))
-                logger.info("token_to_orig_map: %s" % " ".join([
-                    "%d:%d" % (x, y) for (x, y) in token_to_orig_map.items()]))
-                logger.info("token_is_max_context: %s" % " ".join([
-                    "%d:%s" % (x, y) for (x, y) in token_is_max_context.items()
-                ]))
-                logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-                logger.info(
-                    "input_mask: %s" % " ".join([str(x) for x in input_mask]))
-                logger.info(
-                    "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-                if is_training:
-                    answer_text = " ".join(tokens[start_position:(end_position + 1)])
-                    logger.info("start_position: %d" % (start_position))
-                    logger.info("end_position: %d" % (end_position))
-                    logger.info(
-                        "answer: %s" % (answer_text))
+            # if example_index < 20:
+            #     logger.info("*** Example ***")
+            #     logger.info("unique_id: %s" % (unique_id))
+            #     logger.info("example_index: %s" % (example_index))
+            #     logger.info("doc_span_index: %s" % (doc_span_index))
+            #     logger.info("tokens: %s" % " ".join(tokens))
+            #     logger.info("token_to_orig_map: %s" % " ".join([
+            #         "%d:%d" % (x, y) for (x, y) in token_to_orig_map.items()]))
+            #     logger.info("token_is_max_context: %s" % " ".join([
+            #         "%d:%s" % (x, y) for (x, y) in token_is_max_context.items()
+            #     ]))
+            #     logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+            #     logger.info(
+            #         "input_mask: %s" % " ".join([str(x) for x in input_mask]))
+            #     logger.info(
+            #         "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+            #     if is_training:
+            #         answer_text = " ".join(tokens[start_position:(end_position + 1)])
+            #         logger.info("start_position: %d" % (start_position))
+            #         logger.info("end_position: %d" % (end_position))
+            #         logger.info(
+            #             "answer: %s" % (answer_text))
 
             features.append(
                 InputFeatures(
-                    unique_id=unique_id,
-                    example_index=example_index,
-                    doc_span_index=doc_span_index,
-                    tokens=tokens,
-                    token_to_orig_map=token_to_orig_map,
-                    token_is_max_context=token_is_max_context,
-                    input_ids=input_ids,
-                    input_mask=input_mask,
-                    segment_ids=segment_ids,
-                    start_position=start_position,
-                    end_position=end_position))
+                    unique_id=unique_id, # id 从1000000000开始的一个数字
+                    example_index=example_index, # 第几个数据
+                    doc_span_index=doc_span_index, # 数据中的第几个chunk
+                    tokens=tokens,  # query+passage的token，bpe之后的
+                    token_to_orig_map=token_to_orig_map, # 在合并的passage的index-》原始文本的一个映射
+                    token_is_max_context=token_is_max_context, # passage的每一个位置是否是 max-content
+                    input_ids=input_ids, # tokens 转化为idx。也被pad到了最长，pad=0
+                    input_mask=input_mask, # mask，都被pad到了最长，pad = 0
+                    segment_ids=segment_ids,  # tokens中的表示第一句和第二句.sentence_one 0,sentence_two 1
+                    start_position=start_position, # 表示在passage中的位置，有位我们的passage有可能被chunk了\
+                    end_position=end_position))    # 之前的位置信息就会被改变
             unique_id += 1
 
     return features
@@ -764,9 +808,19 @@ def main():
     parser.add_argument('--loss_scale',
                         type=float, default=128,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
+    parser.add_argument('--do_lower_case',
+                        default=False, action='store_true',
+                        help='whether case sensitive')
+    parser.add_argument('--do-test',
+                        default=False, action='store_true',
+                        help='if test ,train and dev data will be small')
+    parser.add_argument("--pre-dir", type=str,
+                        help="where the pretrained checkpoint")
+
 
     args = parser.parse_args()
-
+    print(args)
+    # local_rand 多节点训练
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
         n_gpu = torch.cuda.device_count()
@@ -778,14 +832,18 @@ def main():
         if args.fp16:
             logger.info("16-bits training currently not supported in distributed training")
             args.fp16 = False # (see https://github.com/pytorch/pytorch/pull/13496)
-    logger.info("device: {} n_gpu: {}, distributed training: {}, 16-bits trainiing: {}".format(
-        device, n_gpu, bool(args.local_rank != -1), args.fp16))
-
+    # logger.info("device: {} n_gpu: {}, distributed training: {}, 16-bits trainiing: {}".format(
+    #     device, n_gpu, bool(args.local_rank != -1), args.fp16))
+    # gradient_accumulation_steps == freq_update
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
                             args.gradient_accumulation_steps))
-
+    # 缩小了batch
     args.train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
+    
+    print("| gpu count : {}".format(n_gpu))
+    print("| train batch size in each gpu : {}".format(args.train_batch_size))
+    print("| biuid tokenizer and model in : {}".format(args.pre_dir))
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -809,19 +867,25 @@ def main():
         raise ValueError("Output directory () already exists and is not empty.")
     os.makedirs(args.output_dir, exist_ok=True)
 
-    tokenizer = BertTokenizer.from_pretrained(args.bert_model)
+    tokenizer = BertTokenizer.build_tokenizer(args)
 
     train_examples = None
+    # 一共需要更新多少次
     num_train_steps = None
     if args.do_train:
+        # 加载训练的数据
+        # 如果测试的话和可以截断这个
         train_examples = read_squad_examples(
             input_file=args.train_file, is_training=True)
+        if args.do_test:
+            train_examples = train_examples[:1000]
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
     # Prepare model
-    model = BertForQuestionAnswering.from_pretrained(args.bert_model,
-                cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+    # model = BertForQuestionAnswering.from_pretrained(args.bert_model,
+                # cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+    model = BertForQuestionAnswering.build_model(args)
     if args.fp16:
         model.half()
     model.to(device)
@@ -839,12 +903,22 @@ def main():
         param_optimizer = [(n, param.clone().detach().to('cpu').requires_grad_()) \
                             for n, param in model.named_parameters()]
     else:
+        # 获得所有的参数，包括名字
         param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'gamma', 'beta']
+    # for n,v in param_optimizer:
+    #     print("| name is {}\n".format(n))
+    # # print(oo)
+
+    # 吧模型的参数分为两个组
+    # 第一组是包括 no_decay = ['bias', 'gamma', 'beta'] 关键字的， ---》 'weight_decay_rate': 0.0
+    # 第二组是没有包括关键字 ---》 'weight_decay_rate': 0.01
     optimizer_grouped_parameters = [
         {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
+
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
         ]
+    # 优化器
     optimizer = BertAdam(optimizer_grouped_parameters,
                          lr=args.learning_rate,
                          warmup=args.warmup_proportion,
@@ -855,25 +929,41 @@ def main():
         train_features = convert_examples_to_features(
             examples=train_examples,
             tokenizer=tokenizer,
-            max_seq_length=args.max_seq_length,
-            doc_stride=args.doc_stride,
-            max_query_length=args.max_query_length,
+            max_seq_length=args.max_seq_length, # token之后的最大长度。default -》 384
+            doc_stride=args.doc_stride, # 分块后后每个快的长度 128
+            max_query_length=args.max_query_length, # query token之后的最大长度 default -》 64
             is_training=True)
-        logger.info("***** Running training *****")
-        logger.info("  Num orig examples = %d", len(train_examples))
-        logger.info("  Num split examples = %d", len(train_features))
-        logger.info("  Batch size = %d", args.train_batch_size)
-        logger.info("  Num steps = %d", num_train_steps)
+        # logger.info("|  orig train data = %d", len(train_examples))
+        # logger.info("|  features train data = %d", len(train_features))
+        # logger.info("|  Batch size = %d", args.train_batch_size)
+        # logger.info("|  Num steps = %d", num_train_steps)
+        print("| train data count {}, batch size {}, num steps {}".format(len(train_features), args.train_batch_size, num_train_steps))
+        # 统一的长度，全部被pad到相同的长度
         all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+        # 一个pad的mask，有效的input为1，mask就为0
         all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+        # 表示句子的顺序，0，1  --- pad == 0
         all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+        # target
         all_start_positions = torch.tensor([f.start_position for f in train_features], dtype=torch.long)
         all_end_positions = torch.tensor([f.end_position for f in train_features], dtype=torch.long)
+
+        # 第0维就是数据的index，传入的数据需要保持他们的第一维的size相同
         train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
                                    all_start_positions, all_end_positions)
         if args.local_rank == -1:
+            # go here
+            # 返回一个随机的index，这个index是包括所有的数据
             train_sampler = RandomSampler(train_data)
         else:
+            ## edit 2 : 搞错了分支了
+
+            # 如果数据是拍过序的话，那么有一些gpu的数据的长度会很小，会导致效率和其他的问题？？？？
+            # 由于这个数据集的操作的特殊性，每一条的数据都是相同的。所以没有影响。
+            # 返回一个iter，对每一个rank都返回一个片段。[len*rand,len+len*rand]
+
+            # 返回的是一个index
+            print("| in distributedSample")
             train_sampler = DistributedSampler(train_data)
         train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
 
@@ -884,6 +974,9 @@ def main():
                     batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
                 input_ids, input_mask, segment_ids, start_positions, end_positions = batch
                 loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
+                # print("| loss type is {}".format(type(loss)))
+                # print("| loss size is {}".format(loss.size()))
+                # print(oo)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.fp16 and args.loss_scale != 1.0:
@@ -916,6 +1009,8 @@ def main():
     if args.do_predict:
         eval_examples = read_squad_examples(
             input_file=args.predict_file, is_training=False)
+        if args.do_test:
+            eval_examples = eval_examples[:1000]
         eval_features = convert_examples_to_features(
             examples=eval_examples,
             tokenizer=tokenizer,
@@ -924,10 +1019,11 @@ def main():
             max_query_length=args.max_query_length,
             is_training=False)
 
-        logger.info("***** Running predictions *****")
-        logger.info("  Num orig examples = %d", len(eval_examples))
-        logger.info("  Num split examples = %d", len(eval_features))
-        logger.info("  Batch size = %d", args.predict_batch_size)
+        # logger.info("| Running predictions *****")
+        # logger.info("| orig dev data = %d", len(eval_examples))
+        # logger.info("| split dev data = %d", len(eval_features))
+        # logger.info("| dev batch = %d", args.predict_batch_size)
+        print("\n| dev data count {}, batch size {}".format(len(eval_features), args.predict_batch_size))
 
         all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
         all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
@@ -935,6 +1031,7 @@ def main():
         all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
         eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
         if args.local_rank == -1:
+
             eval_sampler = SequentialSampler(eval_data)
         else:
             eval_sampler = DistributedSampler(eval_data)
@@ -942,10 +1039,8 @@ def main():
 
         model.eval()
         all_results = []
-        logger.info("Start evaluating")
+        # logger.info("Start evaluating")
         for input_ids, input_mask, segment_ids, example_indices in tqdm(eval_dataloader, desc="Evaluating"):
-            if len(all_results) % 1000 == 0:
-                logger.info("Processing example: %d" % (len(all_results)))
             input_ids = input_ids.to(device)
             input_mask = input_mask.to(device)
             segment_ids = segment_ids.to(device)

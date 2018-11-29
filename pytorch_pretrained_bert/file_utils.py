@@ -85,6 +85,7 @@ def cached_path(url_or_filename: Union[str, Path], cache_dir: str = None) -> str
 
     if parsed.scheme in ('http', 'https', 's3'):
         # URL, so get it from the cache (downloading if necessary)
+        # 从服务器下载，model，返回model的path
         return get_from_cache(url_or_filename, cache_dir)
     elif os.path.exists(url_or_filename):
         # File, and it exists.
@@ -177,9 +178,10 @@ def get_from_cache(url: str, cache_dir: str = None) -> str:
             raise IOError("HEAD request failed for url {} with status code {}"
                           .format(url, response.status_code))
         etag = response.headers.get("ETag")
+        print("| etag is {}".format(etag))
 
     filename = url_to_filename(url, etag)
-
+    
     # get cache path to put the file
     cache_path = os.path.join(cache_dir, filename)
 

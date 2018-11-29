@@ -38,6 +38,7 @@ PRETRAINED_VOCAB_ARCHIVE_MAP = {
     'bert-base-chinese': "https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese-vocab.txt",
 }
 
+VOCAB_FILE = "vocab_file.txt"
 
 def load_vocab(vocab_file):
     """Loads a vocabulary file into a dictionary."""
@@ -103,6 +104,9 @@ class BertTokenizer(object):
         Instantiate a PreTrainedBertModel from a pre-trained model file.
         Download and cache the pre-trained model file if needed.
         """
+        print("| build tokenize ")
+        print("| tokenize name is {}, do_lower_case is {}".format(pretrained_model_name, do_lower_case))
+
         if pretrained_model_name in PRETRAINED_VOCAB_ARCHIVE_MAP:
             vocab_file = PRETRAINED_VOCAB_ARCHIVE_MAP[pretrained_model_name]
         else:
@@ -116,6 +120,7 @@ class BertTokenizer(object):
                 logger.info("loading vocabulary file {} from cache at {}".format(
                     vocab_file, resolved_vocab_file))
             # Instantiate tokenizer.
+            print("| resolved_vocab_file is {}".format(resolved_vocab_file))
             tokenizer = cls(resolved_vocab_file, do_lower_case)
         except FileNotFoundError:
             logger.error(
@@ -127,6 +132,19 @@ class BertTokenizer(object):
                     pretrained_model_name))
             tokenizer = None
         return tokenizer
+
+    @classmethod
+    def build_tokenizer(cls, args, do_lower_case=True):
+        pre_dir = args.pre_dir
+        vocab_file = os.path.join(pre_dir, VOCAB_FILE)
+        try:
+            tokenizer = cls(vocab_file, do_lower_case)
+        except FileNotFoundError:
+            print("| can not find vocab_file : {}".format(vocab_file))
+            os.exit(0)
+            tokenizer = None
+        return tokenizer
+
 
 
 class BasicTokenizer(object):
