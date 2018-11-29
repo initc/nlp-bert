@@ -120,5 +120,5 @@ dmypy.json
 
 # TF code
 tensorflow_code
-data/
+/data
 sftp-config*.json
