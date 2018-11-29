@@ -14,6 +14,8 @@ import torch
 from pytorch_pretrained_bert.qa_modeling import MSmorco
 from pytorch_pretrained_bert.tokenization import whitespace_tokenize, BasicTokenizer, BertTokenizer
 from pytorch_pretrained_bert.data.datasets import make_msmarco
+from pytorch_pretrained_bert.optimization import BertAdam
+from pytorch_pretrained_bert.data.bert_dataset import MSmarco_iterator
 
 def main():
     parser = argparse.ArgumentParser()
@@ -54,11 +56,58 @@ def main():
                         default=False, action='store_true',
                         help='whether case sensitive')
 
+    args = parser.parse_args()
 
     # first make corpus
-    args = parser.parse_args()
+    # tokenizer = BertTokenizer.build_tokenizer(args)
+    # make_msmarco(args, tokenizer)
+
+    print(args)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    n_gpu = torch.cuda.device_count()
+
+
+    print("| gpu count : {}".format(n_gpu))
+    print("| train batch size in each gpu : {}".format(args.train_batch_size))
+    print("| biuid tokenizer and model in : {}".format(args.pre_dir))
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+
     tokenizer = BertTokenizer.build_tokenizer(args)
-    make_msmarco(args, tokenizer)
+    data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_train.pk")
+    data_size = len(data_iter)
+    num_train_steps = args.num_train_epochs*data_size//(args.train_batch_size*n_gpu)
+    print("| load dataset {}".format(data_size))
+
+    model = MSmorco.build_model(args)
+    model.to(device)
+    if n_gpu > 1:
+        model = torch.nn.DataParallel(model)
+
+    param_optimizer = list(model.named_parameters())
+    no_decay = ['bias', 'gamma', 'beta']
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
+
+        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
+        ]
+    optimizer = BertAdam(optimizer_grouped_parameters,
+                         lr=args.lr,
+                         warmup=args.warmup_proportion,
+                         t_total=num_train_steps)
+
+    model.train()
+    ok = 0
+    for _ in trange(int(args.num_train_epochs), desc="Epoch"):
+        for step, batch in enumerate(tqdm(data_iter, desc="Iteration")):
+            loss = model(**batch)
+            if step == 0:
+                print(loss.size())
+        print("| ok is ", ok)
 
 
 

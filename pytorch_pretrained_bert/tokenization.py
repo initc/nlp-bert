@@ -145,6 +145,21 @@ class BertTokenizer(object):
             tokenizer = None
         return tokenizer
 
+    def pad(self):
+        return self.vocab["[PAD]"]
+
+    def unk(self):
+        return self.vocab["[UNK]"]
+
+    def cls(self):
+        return self.vocab["[CLS]"]
+
+    def mask(self):
+        return self.vocab["[MASK]"]
+
+    def sep(self):
+        return self.vocab["[SEP]"]
+
 
 
 class BasicTokenizer(object):
