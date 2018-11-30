@@ -132,8 +132,7 @@ def _batch(data, pad_idx, cls_idx, sep_idx, batch_size, max_query_len, max_passa
                     input_tensor[idx_batch, idy, query_len+passage_len+2] = sep_idx
             else:
                 pass
-        targets = torch.FloatTensor(targets[begin:end])
-        yield {"input_ids":torch.LongTensor(input_tensor), "token_type_ids":torch.LongTensor(input_type), "attention_mask":torch.LongTensor(input_mask), "targets":targets}
+        yield {"input_ids":torch.LongTensor(input_tensor), "token_type_ids":torch.LongTensor(input_type), "attention_mask":torch.LongTensor(input_mask), "targets":torch.FloatTensor(targets[begin:end])}
 
 
 def get_batch(data_dict, pad_idx, cls_idx, sep_idx, max_query_len=200, max_passage_len=40, batch_size=1, world_size=4):

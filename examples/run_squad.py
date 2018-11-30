@@ -974,7 +974,7 @@ def main():
                     batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
                 input_ids, input_mask, segment_ids, start_positions, end_positions = batch
                 loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
-                # print("| loss type is {}".format(type(loss)))
+                # print("| loss  is {}".format(loss))
                 # print("| loss size is {}".format(loss.size()))
                 # print(oo)
                 if n_gpu > 1:
@@ -1003,6 +1003,7 @@ def main():
                         copy_optimizer_params_to_model(model.named_parameters(), param_optimizer)
                     else:
                         optimizer.step()
+                    # optimizer.step()
                     model.zero_grad()
                     global_step += 1
 
