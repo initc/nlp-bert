@@ -23,4 +23,4 @@ class MSmarco_iterator():
         return get_batch(self.dataset, self.pad_idx, self.cls_idx, self.sep_idx, self.max_query_len, self.max_passage_len, self.batch_size, self.world_size)
 
     def __len__(self):
-        return self.dataset["query_ids"].__len__()
+        return self.dataset["query_ids"].__len__()//self.world_size//self.batch_size

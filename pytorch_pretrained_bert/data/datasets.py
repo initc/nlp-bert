@@ -82,6 +82,9 @@ def _batch(data, pad_idx, cls_idx, sep_idx, batch_size, max_query_len, max_passa
             lengths.append(len(queries[i]) + max([len(passages[j][i]) for j in range(10)]))
         lengths = np.array(lengths)
         indices = np.argsort(lengths)
+
+        # just for test
+        # indices = indices[:indices.size//10]
         queries = list(np.array(queries)[indices])
         for i in range(10):
             passages[i] = list(np.array(passages[i])[indices])

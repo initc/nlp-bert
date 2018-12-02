@@ -16,11 +16,15 @@ import logging
 
 import pdb
 from sklearn.metrics import accuracy_score
-from pytorch_pretrained_bert.qa_modeling import MSmorco
+from pytorch_pretrained_bert.qa_modeling import MSmorco, ParallelMSmorco
 from pytorch_pretrained_bert.tokenization import whitespace_tokenize, BasicTokenizer, BertTokenizer
 from pytorch_pretrained_bert.data.datasets import make_msmarco
 from pytorch_pretrained_bert.optimization import BertAdam
 from pytorch_pretrained_bert.data.bert_dataset import MSmarco_iterator
+from pytorch_pretrained_bert.parallel import DataParallelModel, DataParallelCriterion
+
+
+
 
 logging.basicConfig(filename="msmarco_train_info.log", format = '%(asctime)s - %(levelname)s -  %(message)s', 
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -75,7 +79,7 @@ def main():
     parser.add_argument('--loss-interval', type=int, default=5000, metavar='N',
                        help='validate every N updates')
     args = parser.parse_args()
-    # logging = logging.getlogging(args.log_name)
+    logging = logging.getlogging(args.log_name)
 
     # first make corpus
     # tokenizer = BertTokenizer.build_tokenizer(args)
@@ -104,9 +108,12 @@ def main():
     print("| load dataset {}".format(data_size))
 
     model = ParallelMSmorco.build_model(args)
+    cls_criterion = nn.KLDivLoss()
     model.to(device)
     if n_gpu > 1:
-        model = torch.nn.DataParallel(model)
+        # model = torch.nn.DataParallel(model)
+        model = DataParallelModel(model)
+        cls_criterion = DataParallelCriterion(cls_criterion)
 
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'gamma', 'beta']
@@ -125,23 +132,30 @@ def main():
         total_loss = 0
         
         for step, batch in enumerate(tqdm(train_data_iter, desc="Train Iteration")):
+            for key in batch.keys():
+                batch[key].to(device)
+            targets = batch["targets"]
+            batch.pop("targets")
             model.train()
-            loss = model(**batch)
+            loss_logits = model(**batch)
             # pdb.set_trace()
+            loss = cls_criterion(loss_logits, targets)
             if n_gpu > 1:
-                loss = loss.mean()
+                loss = loss.sum()
+            # print("| loss {}".format(loss.size()))
             loss.backward()
             optimizer.step()
             model.zero_grad()
             global_update += 1
             if global_update % args.validate_updates==0:
-                validation(args, model, dev_data_iter, n_gpu, epochs, global_update)
+                validation(args, model, cls_criterion, dev_data_iter, n_gpu, epochs, global_update)
             if global_update % args.loss_interval==0:
-                print("TRAIN ::Epoch {} updates {}, train loss {}".format(epochs, global_update, loss.item()))
+                logging.info("TRAIN ::Epoch {} updates {}, train loss {}".format(epochs, global_update, loss.item()))
         save_checkpoint(args, model, epochs)
-        validation(args, model, dev_data_iter, n_gpu, epochs, global_update)
+        validation(args, model, cls_criterion, dev_data_iter, n_gpu, epochs, global_update)
 
-def validation(args, model, data_iter, n_gpu, epochs, global_update):
+def validation(args, model, cls_criterion, data_iter, n_gpu, epochs, global_update):
+    global logging
     total_hit_one = 0
     total_hit_two = 0
     total_hit_three = 0
@@ -149,24 +163,30 @@ def validation(args, model, data_iter, n_gpu, epochs, global_update):
     total_scores = 0
     valid_loss = 0
     data_lens = 0
-    criterion = nn.KLDivLoss()
     batch_size = args.train_batch_size * n_gpu
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     with torch.no_grad():
         model.eval()
         for step, batch in enumerate(tqdm(data_iter, desc="Dev Iteration:")):
+            for key in batch.keys():
+                batch[key].to(device)
             targets = batch["targets"]
-            batch["targets"] = None
-            scores = model(**batch)
-            scores = scores.detach().cpu()
+            batch.pop("targets")
+            scores = []
+            softmax_scores = []
+            ret = model(**batch)
+            for s in ret:
+                scores.append(F.log_softmax(s, dim=1))
+                softmax_scores.append(F.softmax(s, dim=1))
+            valid_loss = cls_criterion(scores, F.softmax(targets, dim=1)).sum()
+            softmax_scores = torch.cat(softmax_scores, dim=0)
             # pdb.set_trace()
             # print("| prob is {}".format(probs))
             # print("| prob size {}".format(probs.size()))
-            probs = F.softmax(scores, 1)
-
-            valid_loss = criterion(F.log_softmax(scores, dim=1), F.softmax(targets, dim=1)).item()
-
+            softmax_scores=softmax_scores.detach().cpu()
+            targets=targets.cpu()
             targets = targets.numpy()
-            probs = probs.numpy()
+            probs = softmax_scores.numpy()
             b = probs.shape[0]
             data_lens += b
             total_scores += accuracy_score(targets, probs > args.threshold)*b
@@ -176,9 +196,9 @@ def validation(args, model, data_iter, n_gpu, epochs, global_update):
             total_hit_three += hit_three
             total_answer_n += answer_n
             if (step+1) % args.loss_interval==0:
-                print("DEV :: epoch {} updates {}, valid loss {}".format(epochs, step, valid_loss))
+                logging.info("DEV :: epoch {} updates {}, valid loss {}".format(epochs, step, valid_loss))
     print("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens))
-    #print("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens), flush=True)
+    logging.info("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens), flush=True)
 
 def get_histest_score(targets, probs):
     hit_one = 0
@@ -200,6 +220,7 @@ def get_histest_score(targets, probs):
 
 def save_checkpoint(args, model, epoch=0):
     checkpoint_path = "{}_epoch_{}.pt".format(args.save, epoch)
+    logging.info("|save checkpoint :: {}".format(checkpoint_path))
     torch.save(model.state_dict(), checkpoint_path)
 
 

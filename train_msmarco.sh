@@ -1,3 +1,1 @@
-python train_msmarco.py --data /raid/qsj/pytorch-pretrained-BERT/data/msmarco-test/ \
-                     --origin-data /raid/qsj/pytorch-pretrained-BERT/data/msmarco/ \
-                     --pre-dir /raid/qsj/pytorch-pretrained-BERT/checkpoints/bert-base-uncased
+CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py --data data/msmarco_test/  --origin-data data/msmarco/  --pre-dir checkpoints/bert-base-uncased --save checkpoints/msmarco/msmarco_1202 --log-name log/info_msmacor_1201.log | tee -a train_log/msmarco_1202.log
