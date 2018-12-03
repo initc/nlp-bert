@@ -16,7 +16,7 @@ import logging
 
 import pdb
 from sklearn.metrics import accuracy_score
-from pytorch_pretrained_bert.qa_modeling import MSmorco, ParallelMSmorco
+from pytorch_pretrained_bert.qa_modeling import MSmarco, ParallelMSmarco
 from pytorch_pretrained_bert.tokenization import whitespace_tokenize, BasicTokenizer, BertTokenizer
 from pytorch_pretrained_bert.data.datasets import make_msmarco
 from pytorch_pretrained_bert.optimization import BertAdam
@@ -29,8 +29,9 @@ from pytorch_pretrained_bert.parallel import DataParallelModel, DataParallelCrit
 logging.basicConfig(filename="msmarco_train_info.log", format = '%(asctime)s - %(levelname)s -  %(message)s', 
                     datefmt = '%m/%d/%Y %H:%M:%S',
                     level = logging.INFO)
+logging.error("| fuck logging")
 
-
+# global logger
 def main():
     parser = argparse.ArgumentParser()
 
@@ -39,10 +40,10 @@ def main():
                         help="path to save checkpoints")
 
     ## Other parameters
-    parser.add_argument("--data", default="data", type=str, help="msmorco train and dev data")
-    parser.add_argument("--origin-data", default="data", type=str, help="msmorco train and dev data, will be tokenizer")
+    parser.add_argument("--data", default="data", type=str, help="MSmarco train and dev data")
+    parser.add_argument("--origin-data", default="data", type=str, help="MSmarco train and dev data, will be tokenizer")
     parser.add_argument("--path", default="data", type=str, help="path(s) to model file(s), colon separated")
-    parser.add_argument("--save", default="checkpoints/msmorco", type=str, help="path(s) to model file(s), colon separated")
+    parser.add_argument("--save", default="checkpoints/MSmarco", type=str, help="path(s) to model file(s), colon separated")
     parser.add_argument("--pre-dir", type=str,
                         help="where the pretrained checkpoint")
     parser.add_argument("--log-name", type=str,
@@ -79,7 +80,9 @@ def main():
     parser.add_argument('--loss-interval', type=int, default=5000, metavar='N',
                        help='validate every N updates')
     args = parser.parse_args()
-    logging = logging.getlogging(args.log_name)
+    # global logger
+    # logger = logging.getLogger(args.log_name)
+    # logger.error("| fuck logger")
 
     # first make corpus
     # tokenizer = BertTokenizer.build_tokenizer(args)
@@ -107,7 +110,7 @@ def main():
     num_train_steps = args.num_train_epochs*data_size
     print("| load dataset {}".format(data_size))
 
-    model = ParallelMSmorco.build_model(args)
+    model = ParallelMSmarco.build_model(args)
     cls_criterion = nn.KLDivLoss()
     model.to(device)
     if n_gpu > 1:
@@ -155,7 +158,7 @@ def main():
         validation(args, model, cls_criterion, dev_data_iter, n_gpu, epochs, global_update)
 
 def validation(args, model, cls_criterion, data_iter, n_gpu, epochs, global_update):
-    global logging
+    # global logger
     total_hit_one = 0
     total_hit_two = 0
     total_hit_three = 0
@@ -198,7 +201,7 @@ def validation(args, model, cls_criterion, data_iter, n_gpu, epochs, global_upda
             if (step+1) % args.loss_interval==0:
                 logging.info("DEV :: epoch {} updates {}, valid loss {}".format(epochs, step, valid_loss))
     print("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens))
-    logging.info("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens), flush=True)
+    logging.info("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens))
 
 def get_histest_score(targets, probs):
     hit_one = 0

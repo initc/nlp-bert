@@ -16,7 +16,7 @@ import logging
 
 import pdb
 from sklearn.metrics import accuracy_score
-from pytorch_pretrained_bert.qa_modeling import MSmorco
+from pytorch_pretrained_bert.qa_modeling import MSmarco
 from pytorch_pretrained_bert.tokenization import whitespace_tokenize, BasicTokenizer, BertTokenizer
 from pytorch_pretrained_bert.data.datasets import make_msmarco
 from pytorch_pretrained_bert.optimization import BertAdam
@@ -35,10 +35,10 @@ def main():
                         help="path to save checkpoints")
 
     ## Other parameters
-    parser.add_argument("--data", default="data", type=str, help="msmorco train and dev data")
-    parser.add_argument("--origin-data", default="data", type=str, help="msmorco train and dev data, will be tokenizer")
+    parser.add_argument("--data", default="data", type=str, help="MSmarco train and dev data")
+    parser.add_argument("--origin-data", default="data", type=str, help="MSmarco train and dev data, will be tokenizer")
     parser.add_argument("--path", default="data", type=str, help="path(s) to model file(s), colon separated")
-    parser.add_argument("--save", default="checkpoints/msmorco", type=str, help="path(s) to model file(s), colon separated")
+    parser.add_argument("--save", default="checkpoints/MSmarco", type=str, help="path(s) to model file(s), colon separated")
     parser.add_argument("--pre-dir", type=str,
                         help="where the pretrained checkpoint")
     parser.add_argument("--log-name", type=str,
@@ -49,6 +49,10 @@ def main():
     parser.add_argument("--max-query-tokens", default=50, type=int,
                         help="The maximum number of tokens for the question. Questions longer than this will "
                              "be truncated to this length.")
+    parser.add_argument('--gradient-accumulation-steps',
+                        type=int,
+                        default=1,
+                        help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--train-batch-size", default=2, type=int, help="Total batch size for training.")
     parser.add_argument("--predict-batch-size", default=1, type=int, help="Total batch size for predictions.")
     parser.add_argument("--lr", default=6.25e-5, type=float, help="The initial learning rate for Adam.")
@@ -100,10 +104,11 @@ def main():
     train_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_train.pk")
     dev_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_dev.pk")
     data_size = len(train_data_iter)
-    num_train_steps = args.num_train_epochs*data_size
+    gradient_accumulation_steps = args.gradient_accumulation_steps
+    num_train_steps = args.num_train_epochs*data_size/gradient_accumulation_steps
     print("| load dataset {}".format(data_size))
 
-    model = ParallelMSmorco.build_model(args)
+    model = ParallelMSmarco.build_model(args)
     model.to(device)
     if n_gpu > 1:
         model = torch.nn.DataParallel(model)

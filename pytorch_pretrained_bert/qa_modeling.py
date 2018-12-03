@@ -3,10 +3,10 @@ import torch.nn as nn
 import  torch.nn.functional  as F
 import torch
 
-class MSmorco(PreTrainedBertModel):
+class MSmarco(PreTrainedBertModel):
 
     def __init__(self, config):
-        super(MSmorco, self).__init__(config)
+        super(MSmarco, self).__init__(config)
 
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -31,10 +31,10 @@ class MSmorco(PreTrainedBertModel):
         else:
             return clf_score
 
-class ParallelMSmorco(PreTrainedBertModel):
+class ParallelMSmarco(PreTrainedBertModel):
 
     def __init__(self, config):
-        super(ParallelMSmorco, self).__init__(config)
+        super(ParallelMSmarco, self).__init__(config)
 
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -59,10 +59,10 @@ class ParallelMSmorco(PreTrainedBertModel):
             return clf_score
     
 
-# class MSmorco(PreTrainedBertModel):
+# class MSmarco(PreTrainedBertModel):
 
 #     def __init__(self, config):
-#         super(MSmorco, self).__init__(config, num_labels=1)
+#         super(MSmarco, self).__init__(config, num_labels=1)
 
 #         self.bert = BertModel(config)
 #         self.cls = BertOnlyNSPHead(config)

@@ -49,7 +49,7 @@ def make_msmarco(args, tokenizer):
 
 
 
-def _batch(data, pad_idx, cls_idx, sep_idx, batch_size, max_query_len, max_passage_len, query_first=True):
+def _batch(data, pad_idx, cls_idx, sep_idx, batch_size, accumulation_steps=1, max_query_len, max_passage_len, query_first=True):
 
     def truncation(queries, passages):
         b_size = len(queries)
@@ -94,7 +94,7 @@ def _batch(data, pad_idx, cls_idx, sep_idx, batch_size, max_query_len, max_passa
     queries, passages = truncation(data["query_ids"], data["passage_ids"])
     # -----
     query_ids, passage_ids, targets = sort_by_length(queries, passages, data["targets"])
-    batch_count = len(query_ids)//batch_size
+    batch_count = (len(query_ids)//batch_size//accumulation_steps)*accumulation_steps
     for idx in range(batch_count):
         begin = idx*batch_size
         end = begin + batch_size
@@ -138,9 +138,9 @@ def _batch(data, pad_idx, cls_idx, sep_idx, batch_size, max_query_len, max_passa
         yield {"input_ids":torch.LongTensor(input_tensor), "token_type_ids":torch.LongTensor(input_type), "attention_mask":torch.LongTensor(input_mask), "targets":torch.FloatTensor(targets[begin:end])}
 
 
-def get_batch(data_dict, pad_idx, cls_idx, sep_idx, max_query_len=200, max_passage_len=40, batch_size=1, world_size=4):
+def get_batch(data_dict, pad_idx, cls_idx, sep_idx, max_query_len=200, max_passage_len=40, batch_size=1, world_size=4, accumulation_steps=1):
 
-    for batch in _batch(data_dict, pad_idx, cls_idx, sep_idx, batch_size*world_size, max_query_len, max_passage_len):
+    for batch in _batch(data_dict, pad_idx, cls_idx, sep_idx, batch_size*world_size, accumulation_steps, max_query_len, max_passage_len):
         yield batch
 
 
