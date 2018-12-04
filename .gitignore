@@ -122,3 +122,4 @@ dmypy.json
 tensorflow_code
 /data
 sftp-config*.json
+/checkpoints

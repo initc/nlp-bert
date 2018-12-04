@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch
 import logging
 
-import pdb
+# import pdb
 from sklearn.metrics import accuracy_score
 from pytorch_pretrained_bert.qa_modeling import MSmarco, ParallelMSmarco
 from pytorch_pretrained_bert.tokenization import whitespace_tokenize, BasicTokenizer, BertTokenizer
@@ -26,10 +26,10 @@ from pytorch_pretrained_bert.parallel import DataParallelModel, DataParallelCrit
 
 
 
-logging.basicConfig(filename="msmarco_train_info.log", format = '%(asctime)s - %(levelname)s -  %(message)s', 
-                    datefmt = '%m/%d/%Y %H:%M:%S',
-                    level = logging.INFO)
-logging.error("| fuck logging")
+# logging.basicConfig(filename="msmarco_train_info.log", format = '%(asctime)s - %(levelname)s -  %(message)s', 
+#                     datefmt = '%m/%d/%Y %H:%M:%S',
+#                     level = logging.INFO)
+# logging.error("| fuck logging")
 
 # global logger
 def main():
@@ -54,6 +54,10 @@ def main():
     parser.add_argument("--max-query-tokens", default=50, type=int,
                         help="The maximum number of tokens for the question. Questions longer than this will "
                              "be truncated to this length.")
+    parser.add_argument('--gradient-accumulation-steps',
+                        type=int,
+                        default=1,
+                        help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--train-batch-size", default=2, type=int, help="Total batch size for training.")
     parser.add_argument("--predict-batch-size", default=1, type=int, help="Total batch size for predictions.")
     parser.add_argument("--lr", default=6.25e-5, type=float, help="The initial learning rate for Adam.")
@@ -66,10 +70,6 @@ def main():
                         type=int, 
                         default=42,
                         help="random seed for initialization")
-    parser.add_argument('--gradient-accumulation-steps',
-                        type=int,
-                        default=1,
-                        help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument('--do-lower-case',
                         default=False, action='store_true',
                         help='whether case sensitive')
@@ -104,8 +104,9 @@ def main():
 
 
     tokenizer = BertTokenizer.build_tokenizer(args)
-    train_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_train.pk")
+    train_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, accumulation_steps=args.gradient_accumulation_steps, name="msmarco_train.pk")
     dev_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_dev.pk")
+    gradient_accumulation_steps = args.gradient_accumulation_steps
     data_size = len(train_data_iter)
     num_train_steps = args.num_train_epochs*data_size
     print("| load dataset {}".format(data_size))
@@ -133,7 +134,6 @@ def main():
     global_update = 0
     for epochs in range(args.num_train_epochs):
         total_loss = 0
-        
         for step, batch in enumerate(tqdm(train_data_iter, desc="Train Iteration")):
             for key in batch.keys():
                 batch[key].to(device)
@@ -145,14 +145,21 @@ def main():
             loss = cls_criterion(loss_logits, targets)
             if n_gpu > 1:
                 loss = loss.sum()
+            if args.gradient_accumulation_steps > 1:
+                loss = loss/args.gradient_accumulation_steps
+            # loss.backward()
+            if (step + 1) % args.gradient_accumulation_steps == 0:
+                optimizer.step()
+                model.zero_grad()
+                global_update += 1
             # print("| loss {}".format(loss.size()))
-            loss.backward()
-            optimizer.step()
-            model.zero_grad()
-            global_update += 1
-            if global_update % args.validate_updates==0:
+            
+            # optimizer.step()
+            # model.zero_grad()
+            # global_update += 1
+            if global_update > 0 and global_update % args.validate_updates==0:
                 validation(args, model, cls_criterion, dev_data_iter, n_gpu, epochs, global_update)
-            if global_update % args.loss_interval==0:
+            if global_update > 0 and global_update % args.loss_interval==0:
                 logging.info("TRAIN ::Epoch {} updates {}, train loss {}".format(epochs, global_update, loss.item()))
         save_checkpoint(args, model, epochs)
         validation(args, model, cls_criterion, dev_data_iter, n_gpu, epochs, global_update)

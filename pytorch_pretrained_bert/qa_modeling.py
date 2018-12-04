@@ -25,7 +25,7 @@ class MSmarco(PreTrainedBertModel):
         logits = self.classifier(pooled_output)
 
         clf_score = logits.view(bsz, clfs)
-        if targets is not None:
+        if self.training:
             loss = self.criterion(F.log_softmax(clf_score, 1), targets)
             return loss
         else:

@@ -2,7 +2,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import argparse
 import json
 import os
 import random
@@ -12,9 +11,9 @@ import numpy as np
 from torch.nn import functional as F
 import torch.nn as nn
 import torch
-import logging
+import config
 
-import pdb
+# import pdb
 from sklearn.metrics import accuracy_score
 from pytorch_pretrained_bert.qa_modeling import MSmarco
 from pytorch_pretrained_bert.tokenization import whitespace_tokenize, BasicTokenizer, BertTokenizer
@@ -22,78 +21,23 @@ from pytorch_pretrained_bert.data.datasets import make_msmarco
 from pytorch_pretrained_bert.optimization import BertAdam
 from pytorch_pretrained_bert.data.bert_dataset import MSmarco_iterator
 
-logging.basicConfig(filename="msmarco_train_info.log", format = '%(asctime)s - %(levelname)s -  %(message)s', 
-                    datefmt = '%m/%d/%Y %H:%M:%S',
-                    level = logging.INFO)
 
 
-def main():
-    parser = argparse.ArgumentParser()
+def main(args):
 
 
-    parser.add_argument("--save-dir", default="checkpoints", type=str,
-                        help="path to save checkpoints")
-
-    ## Other parameters
-    parser.add_argument("--data", default="data", type=str, help="MSmarco train and dev data")
-    parser.add_argument("--origin-data", default="data", type=str, help="MSmarco train and dev data, will be tokenizer")
-    parser.add_argument("--path", default="data", type=str, help="path(s) to model file(s), colon separated")
-    parser.add_argument("--save", default="checkpoints/MSmarco", type=str, help="path(s) to model file(s), colon separated")
-    parser.add_argument("--pre-dir", type=str,
-                        help="where the pretrained checkpoint")
-    parser.add_argument("--log-name", type=str,
-                        help="where logfile")
-    parser.add_argument("--max-passage-tokens", default=200, type=int,
-                        help="The maximum total input passage length after WordPiece tokenization. Sequences "
-                             "longer than this will be truncated, and sequences shorter than this will be padded.")
-    parser.add_argument("--max-query-tokens", default=50, type=int,
-                        help="The maximum number of tokens for the question. Questions longer than this will "
-                             "be truncated to this length.")
-    parser.add_argument('--gradient-accumulation-steps',
-                        type=int,
-                        default=1,
-                        help="Number of updates steps to accumulate before performing a backward/update pass.")
-    parser.add_argument("--train-batch-size", default=2, type=int, help="Total batch size for training.")
-    parser.add_argument("--predict-batch-size", default=1, type=int, help="Total batch size for predictions.")
-    parser.add_argument("--lr", default=6.25e-5, type=float, help="The initial learning rate for Adam.")
-    parser.add_argument("--num-train-epochs", default=3, type=int,
-                        help="Total number of training epochs to perform.")
-    parser.add_argument("--warmup-proportion", default=0.1, type=float,
-                        help="Proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10% "
-                             "of training.")
-    parser.add_argument('--seed', 
-                        type=int, 
-                        default=42,
-                        help="random seed for initialization")
-    parser.add_argument('--gradient-accumulation-steps',
-                        type=int,
-                        default=1,
-                        help="Number of updates steps to accumulate before performing a backward/update pass.")
-    parser.add_argument('--do-lower-case',
-                        default=False, action='store_true',
-                        help='whether case sensitive')
-    parser.add_argument('--threshold', type=int, default=0.36)
-    parser.add_argument('--logfile', type=str, default="logfile.log")
-    parser.add_argument('--validate-updates', type=int, default=30000, metavar='N',
-                       help='validate every N updates')
-    parser.add_argument('--loss-interval', type=int, default=5000, metavar='N',
-                       help='validate every N updates')
-    args = parser.parse_args()
-    # logging = logging.getlogging(args.log_name)
-
-    # first make corpus
-    # tokenizer = BertTokenizer.build_tokenizer(args)
-    # make_msmarco(args, tokenizer)
-
-    print(args)
-
+    logging = config.get_logging(args.log_name)
+    logging.info("##"*20)
+    logging.info("##"*20)
+    logging.info("##"*20)
+    logging.info(args)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     n_gpu = torch.cuda.device_count()
 
-
-    print("| gpu count : {}".format(n_gpu))
-    print("| train batch size in each gpu : {}".format(args.train_batch_size))
-    print("| biuid tokenizer and model in : {}".format(args.pre_dir))
+    logging.info("| question first :: {}".format(args.question_first))
+    logging.info("| gpu count : {}".format(n_gpu))
+    logging.info("| train batch size in each gpu : {}".format(args.train_batch_size))
+    logging.info("| biuid tokenizer and model in : {}".format(args.pre_dir))
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -101,14 +45,17 @@ def main():
 
 
     tokenizer = BertTokenizer.build_tokenizer(args)
-    train_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_train.pk")
+    train_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, accumulation_steps=args.gradient_accumulation_steps, name="msmarco_train.pk")
     dev_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_dev.pk")
     data_size = len(train_data_iter)
     gradient_accumulation_steps = args.gradient_accumulation_steps
-    num_train_steps = args.num_train_epochs*data_size/gradient_accumulation_steps
-    print("| load dataset {}".format(data_size))
+    num_train_steps = args.num_train_epochs*data_size
+    logging.info("| load dataset {}".format(data_size))
+    logging.info("| train batch data size {}".format(len(train_data_iter)))
+    logging.info("| dev batch data size {}".format(len(dev_data_iter)))
+    logging.info("| total update {}".format(num_train_steps))
 
-    model = ParallelMSmarco.build_model(args)
+    model = MSmarco.build_model(args)
     model.to(device)
     if n_gpu > 1:
         model = torch.nn.DataParallel(model)
@@ -128,25 +75,31 @@ def main():
     global_update = 0
     for epochs in range(args.num_train_epochs):
         total_loss = 0
-        
         for step, batch in enumerate(tqdm(train_data_iter, desc="Train Iteration")):
             model.train()
+            if n_gpu==1:
+                for key in batch.keys():
+                    batch[key]=batch[key].to(device)
             loss = model(**batch)
             # pdb.set_trace()
             if n_gpu > 1:
                 loss = loss.mean()
+            if args.gradient_accumulation_steps > 1:
+                loss = loss/args.gradient_accumulation_steps
             loss.backward()
-            optimizer.step()
-            model.zero_grad()
-            global_update += 1
-            if global_update % args.validate_updates==0:
-                validation(args, model, dev_data_iter, n_gpu, epochs, global_update)
-            if global_update % args.loss_interval==0:
-                print("TRAIN ::Epoch {} updates {}, train loss {}".format(epochs, global_update, loss.item()))
-        save_checkpoint(args, model, epochs)
-        validation(args, model, dev_data_iter, n_gpu, epochs, global_update)
+            if (step + 1) % args.gradient_accumulation_steps == 0:
+                optimizer.step()
+                model.zero_grad()
+                global_update += 1
 
-def validation(args, model, data_iter, n_gpu, epochs, global_update):
+            if global_update >0 and global_update % args.validate_updates==0:
+                validation(args, model, dev_data_iter, n_gpu, epochs, global_update, logging)
+            if (step+1) % args.loss_interval==0:
+                logging.info("TRAIN ::Epoch {} updates {}, train loss {}".format(epochs, global_update, loss.item()))
+        save_checkpoint(args, model, epochs)
+        validation(args, model, dev_data_iter, n_gpu, epochs, global_update, logging)
+
+def validation(args, model, data_iter, n_gpu, epochs, global_update, logging):
     total_hit_one = 0
     total_hit_two = 0
     total_hit_three = 0
@@ -181,8 +134,10 @@ def validation(args, model, data_iter, n_gpu, epochs, global_update):
             total_hit_three += hit_three
             total_answer_n += answer_n
             if (step+1) % args.loss_interval==0:
-                print("DEV :: epoch {} updates {}, valid loss {}".format(epochs, step, valid_loss))
-    print("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens))
+                logging.info("DEV :: epoch {} updates {}, valid loss {}".format(epochs, step, valid_loss))
+                #print("DEV :: epoch {} updates {}, valid loss {}".format(epochs, step, valid_loss))
+    logging.info("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens))
+    #print("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens))
     #print("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens), flush=True)
 
 def get_histest_score(targets, probs):
@@ -203,13 +158,19 @@ def get_histest_score(targets, probs):
             hit_three += 1
     return hit_one, hit_two, hit_three, answer_n
 
-def save_checkpoint(args, model, epoch=0):
-    checkpoint_path = "{}_epoch_{}.pt".format(args.save, epoch)
+def save_checkpoint(args, model, epoch=0, updates=None):
+    os.makedirs(args.save, exist_ok=True)
+    if updates is not None:
+        checkpoint_path = "checkpoints_{}_{}.pt".format(epoch, updates)
+    else:
+        checkpoint_path = "checkpoints_{}.pt".format(epoch)
+    checkpoint_path = os.path.join(args.save, checkpoint_path)
     torch.save(model.state_dict(), checkpoint_path)
 
 
 if __name__ == "__main__":
-    main()
+    args = config.parse_args()
+    main(args)
 
 
 
