@@ -22,7 +22,7 @@ class MSmarco_iterator():
         self.dataset = pickle.load(open(os.path.join(args.data, name), "rb"))
         self.truncation(self.max_query_len, self.max_passage_len)
         self.sort_by_length()
-        self.shuffle()
+        # self.shuffle()
 
     def shuffle(self, portion=0.15):
         queries = self.dataset["query_ids"]

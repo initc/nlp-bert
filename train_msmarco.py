@@ -55,6 +55,7 @@ def main(args):
     logging.info("| dev data size {}".format(len(dev_data_iter)*n_gpu*args.train_batch_size))
     logging.info("| train batch data size {}".format(len(train_data_iter)))
     logging.info("| dev batch data size {}".format(len(dev_data_iter)))
+    logging.info("| update in each train data {}".format(data_size//gradient_accumulation_steps))
     logging.info("| total update {}".format(num_train_steps))
 
     model = MSmarco.build_model(args)
@@ -162,7 +163,7 @@ def get_histest_score(targets, probs):
             hit_three += 1
     return hit_one, hit_two, hit_three, answer_n
 
-def save_checkpoint(args, model, epoch=0, updates=None. score=0, logging=None):
+def save_checkpoint(args, model, epoch=0, updates=None, score=0, logging=None):
     best_scores = 0
     if hasattr(save_checkpoint, "best_scores"):
         best_scores = save_checkpoint.best_scores
@@ -175,7 +176,7 @@ def save_checkpoint(args, model, epoch=0, updates=None. score=0, logging=None):
     torch.save(model.state_dict(), checkpoint_path)
     ## save best 
     if score > best_scores:
-        logging.info("save best checkpoint ::  epoch {} updates {}".format(epoch, updates))
+        logging.info("save best checkpoint ::best scores {}, epoch {} updates {}".format(score, epoch, updates))
         checkpoint_path = os.path.join(args.save, "checkpoints_best.pt")
         torch.save(model.state_dict(), checkpoint_path)
 
