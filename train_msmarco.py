@@ -49,8 +49,10 @@ def main(args):
     dev_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_dev.pk")
     data_size = len(train_data_iter)
     gradient_accumulation_steps = args.gradient_accumulation_steps
-    num_train_steps = args.num_train_epochs*data_size
-    logging.info("| load dataset {}".format(data_size))
+    num_train_steps = args.num_train_epochs*data_size//gradient_accumulation_steps
+    # logging.info("| load dataset {}".format(data_size))
+    logging.info("| train data size {}".format(len(train_data_iter)*n_gpu*args.train_batch_size))
+    logging.info("| dev data size {}".format(len(dev_data_iter)*n_gpu*args.train_batch_size))
     logging.info("| train batch data size {}".format(len(train_data_iter)))
     logging.info("| dev batch data size {}".format(len(dev_data_iter)))
     logging.info("| total update {}".format(num_train_steps))
