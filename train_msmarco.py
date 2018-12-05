@@ -97,10 +97,11 @@ def main(args):
                     validation(args, model, dev_data_iter, n_gpu, epochs, global_update, logging)
             if (step+1) % args.loss_interval==0:
                 logging.info("TRAIN ::Epoch {} updates {}, train loss {}".format(epochs, global_update, loss.item()))
-        save_checkpoint(args, model, epochs)
+        # save_checkpoint(args, model, epochs)
         validation(args, model, dev_data_iter, n_gpu, epochs, global_update, logging)
 
 def validation(args, model, data_iter, n_gpu, epochs, global_update, logging):
+
     total_hit_one = 0
     total_hit_two = 0
     total_hit_three = 0
@@ -137,6 +138,8 @@ def validation(args, model, data_iter, n_gpu, epochs, global_update, logging):
             if (step+1) % args.loss_interval==0:
                 logging.info("DEV :: epoch {} updates {}, valid loss {}".format(epochs, step, valid_loss))
                 #print("DEV :: epoch {} updates {}, valid loss {}".format(epochs, step, valid_loss))
+    score = total_hit_one/total_answer_n
+    save_checkpoint(args, model, epochs, global_update, score, logging)
     logging.info("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens))
     #print("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens))
     #print("\n| Evaluation epoch {} updates {} : hit_one {}, hit_two {}, hit_three {}, accuracy_score {}".format(epochs, global_update, total_hit_one/total_answer_n, total_hit_two/total_answer_n, total_hit_three/total_answer_n, total_scores/data_lens), flush=True)
@@ -159,7 +162,10 @@ def get_histest_score(targets, probs):
             hit_three += 1
     return hit_one, hit_two, hit_three, answer_n
 
-def save_checkpoint(args, model, epoch=0, updates=None):
+def save_checkpoint(args, model, epoch=0, updates=None. score=0, logging=None):
+    best_scores = 0
+    if hasattr(save_checkpoint, "best_scores"):
+        best_scores = save_checkpoint.best_scores
     os.makedirs(args.save, exist_ok=True)
     if updates is not None:
         checkpoint_path = "checkpoints_{}_{}.pt".format(epoch, updates)
@@ -167,6 +173,11 @@ def save_checkpoint(args, model, epoch=0, updates=None):
         checkpoint_path = "checkpoints_{}.pt".format(epoch)
     checkpoint_path = os.path.join(args.save, checkpoint_path)
     torch.save(model.state_dict(), checkpoint_path)
+    ## save best 
+    if score > best_scores:
+        logging.info("save best checkpoint ::  epoch {} updates {}".format(epoch, updates))
+        checkpoint_path = os.path.join(args.save, "checkpoints_best.pt")
+        torch.save(model.state_dict(), checkpoint_path)
 
 
 if __name__ == "__main__":
