@@ -91,9 +91,8 @@ def main(args):
                 optimizer.step()
                 model.zero_grad()
                 global_update += 1
-
-            if global_update >0 and global_update % args.validate_updates==0:
-                validation(args, model, dev_data_iter, n_gpu, epochs, global_update, logging)
+                if global_update % args.validate_updates==0:
+                    validation(args, model, dev_data_iter, n_gpu, epochs, global_update, logging)
             if (step+1) % args.loss_interval==0:
                 logging.info("TRAIN ::Epoch {} updates {}, train loss {}".format(epochs, global_update, loss.item()))
         save_checkpoint(args, model, epochs)
