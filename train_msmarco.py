@@ -58,7 +58,7 @@ def main(args):
     logging.info("| update in each train data {}".format(data_size//gradient_accumulation_steps))
     logging.info("| total update {}".format(num_train_steps))
 
-    num_train_steps = (96032//2//2)+(data_size-96032)//2
+    # num_train_steps = (96032//2//2)+(data_size-96032)//2
 
     model = MSmarco.build_model(args)
     model.to(device)
@@ -81,28 +81,28 @@ def main(args):
     for epochs in range(args.num_train_epochs):
         total_loss = 0
         merge_batch = []
-        count = 0
+        # count = 0
         for step, batch in enumerate(tqdm(train_data_iter, desc="Train Iteration")):
             model.train()
-            if step < 96032:
-                merge_batch.append(batch)
-                if len(merge_batch) == 2:
-                    batch = merger_tensor(merge_batch)
-                    merge_batch = []
-                else:
-                    continue
+            # if step < 96032:
+            #     merge_batch.append(batch)
+            #     if len(merge_batch) == 2:
+            #         batch = merger_tensor(merge_batch)
+            #         merge_batch = []
+            #     else:
+            #         continue
             if n_gpu==1:
                 for key in batch.keys():
                     batch[key]=batch[key].to(device)
             loss = model(**batch)
-            count += 1
+            # count += 1
             # pdb.set_trace()
             if n_gpu > 1:
                 loss = loss.mean()
             if args.gradient_accumulation_steps > 1:
                 loss = loss/args.gradient_accumulation_steps
             loss.backward()
-            if count % args.gradient_accumulation_steps == 0:
+            if (step+1) % args.gradient_accumulation_steps == 0:
                 optimizer.step()
                 model.zero_grad()
                 global_update += 1
