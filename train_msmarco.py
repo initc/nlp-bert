@@ -46,17 +46,19 @@ def main(args):
 
     tokenizer = BertTokenizer.build_tokenizer(args)
     train_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, accumulation_steps=args.gradient_accumulation_steps, name="msmarco_train.pk")
-    dev_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.train_batch_size, world_size=n_gpu, name="msmarco_dev.pk")
+    dev_data_iter = MSmarco_iterator(args, tokenizer, batch_size=args.valid_batch_size, world_size=n_gpu, name="msmarco_dev.pk")
     data_size = len(train_data_iter)
     gradient_accumulation_steps = args.gradient_accumulation_steps
     num_train_steps = args.num_train_epochs*data_size//gradient_accumulation_steps
     # logging.info("| load dataset {}".format(data_size))
     logging.info("| train data size {}".format(len(train_data_iter)*n_gpu*args.train_batch_size))
-    logging.info("| dev data size {}".format(len(dev_data_iter)*n_gpu*args.train_batch_size))
+    logging.info("| dev data size {}".format(len(dev_data_iter)*n_gpu*args.valid_batch_size))
     logging.info("| train batch data size {}".format(len(train_data_iter)))
     logging.info("| dev batch data size {}".format(len(dev_data_iter)))
     logging.info("| update in each train data {}".format(data_size//gradient_accumulation_steps))
     logging.info("| total update {}".format(num_train_steps))
+
+    num_train_steps = (96032//2//2)+(data_size-96032)//2
 
     model = MSmarco.build_model(args)
     model.to(device)
@@ -78,19 +80,29 @@ def main(args):
     global_update = 0
     for epochs in range(args.num_train_epochs):
         total_loss = 0
+        merge_batch = []
+        count = 0
         for step, batch in enumerate(tqdm(train_data_iter, desc="Train Iteration")):
             model.train()
+            if step < 96032:
+                merge_batch.append(batch)
+                if len(merge_batch) == 2:
+                    batch = merger_tensor(merge_batch)
+                    merge_batch = []
+                else:
+                    continue
             if n_gpu==1:
                 for key in batch.keys():
                     batch[key]=batch[key].to(device)
             loss = model(**batch)
+            count += 1
             # pdb.set_trace()
             if n_gpu > 1:
                 loss = loss.mean()
             if args.gradient_accumulation_steps > 1:
                 loss = loss/args.gradient_accumulation_steps
             loss.backward()
-            if (step + 1) % args.gradient_accumulation_steps == 0:
+            if count % args.gradient_accumulation_steps == 0:
                 optimizer.step()
                 model.zero_grad()
                 global_update += 1
@@ -100,6 +112,13 @@ def main(args):
                 logging.info("TRAIN ::Epoch {} updates {}, train loss {}".format(epochs, global_update, loss.item()))
         # save_checkpoint(args, model, epochs)
         validation(args, model, dev_data_iter, n_gpu, epochs, global_update, logging)
+
+def merger_tensor(merge_batch):
+    batch = {}
+    keys = merge_batch[0].keys()
+    for key in keys:
+        batch[keys]=torch.cat([b[key] for b in merge_batch], dim = 0)
+    return batch
 
 def validation(args, model, data_iter, n_gpu, epochs, global_update, logging):
 

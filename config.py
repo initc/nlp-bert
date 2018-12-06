@@ -65,7 +65,7 @@ def parse_args():
                         default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--train-batch-size", default=2, type=int, help="Total batch size for training.")
-    parser.add_argument("--predict-batch-size", default=1, type=int, help="Total batch size for predictions.")
+    parser.add_argument("--valid-batch-size", default=2, type=int, help="Total batch size for predictions.")
     parser.add_argument("--lr", default=6.25e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--num-train-epochs", default=3, type=int,
                         help="Total number of training epochs to perform.")
@@ -88,6 +88,10 @@ def parse_args():
                        help='validate every N updates')
     parser.add_argument('--loss-interval', type=int, default=500, metavar='N',
                        help='validate every N updates')
+    parser.add_argument('--merge-batch', action='store_true', default=False,
+                       help='meger mutil batch into one until 90% batch have done!')
+    parser.add_argument('--merge-size', type=int, default=2,
+                       help='meger two batch into one until 90% batch have done!')
     args = parser.parse_args()
     # logging = logging.getlogging(args.log_name)
     # logging = config.get_logging("log/msmarco_1204_small.log")
