@@ -548,6 +548,8 @@ class PreTrainedBertModel(nn.Module):
         config = BertConfig.from_json_file(config_file)
 
         model = cls(config, *inputs, **kwargs)
+        if "generate" in kwargs:
+            return model
         pretrained_weight = os.path.join(pre_dir, WEIGHTS_NAME)
         state_dict = torch.load(pretrained_weight)
 

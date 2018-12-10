@@ -5,7 +5,7 @@ import torch
 
 class MSmarco(PreTrainedBertModel):
 
-    def __init__(self, config):
+    def __init__(self, config, *inputs, **kwargs):
         super(MSmarco, self).__init__(config)
 
         self.bert = BertModel(config)

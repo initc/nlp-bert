@@ -36,7 +36,34 @@ def get_logging(filename):
     logging.config.dictConfig(LOG_CONFIG)
     return logging.getLogger('default')
 
+def generate_args():
+    parser = argparse.ArgumentParser()
 
+    ## Other parameters
+    parser.add_argument("--data", default="data", type=str, help="MSmarco dev data")
+    parser.add_argument("--path", default="data", type=str, help="path(s) to model file(s), colon separated")
+    parser.add_argument("--valid-batch-size", default=2, type=int, help="Total batch size for predictions.")
+    parser.add_argument("--max-passage-tokens", default=200, type=int,
+                        help="The maximum total input passage length after WordPiece tokenization. Sequences "
+                             "longer than this will be truncated, and sequences shorter than this will be padded.")
+    parser.add_argument("--max-query-tokens", default=50, type=int,
+                        help="The maximum number of tokens for the question. Questions longer than this will "
+                             "be truncated to this length.")
+    parser.add_argument('--do-lower-case',
+                        default=False, action='store_true',
+                        help='whether case sensitive')
+    parser.add_argument('--question-first',
+                        default=False, action='store_true',
+                        help='whether case sensitive')
+    parser.add_argument('--log-name', type=str, default="logfile.log")
+    parser.add_argument('--threshold', type=int, default=0.36)
+    parser.add_argument('--loss-interval', type=int, default=500, metavar='N',
+                       help='validate every N updates')
+    parser.add_argument("--pre-dir", type=str,
+                        help="where the pretrained checkpoint")
+
+    args = parser.parse_args()
+    return args
 
 def parse_args():
     parser = argparse.ArgumentParser()
