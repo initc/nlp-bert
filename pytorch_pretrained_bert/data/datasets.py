@@ -47,6 +47,28 @@ def make_msmarco(args, tokenizer):
     with open(os.path.join(args.data, "msmarco_dev.pk"), "wb") as f:
         pickle.dump(dev_data, f)
 
+def msmarco_fariseq(in_file, out_dir, pref="train"):
+    train_queries, train_passages, train_targets = _msmarco(in_file)
+    assert len(train_queries) == len(train_passages[0])
+    assert len(train_passages) == 10
+    assert len(train_targets) == len(train_queries)
+    msmarco_A_file = os.path.join(out_dir, "{}-query.bert".format(pref))
+    msmarco_B_file = os.path.join(out_dir, "{}-passage.bert".format(pref))
+    msmarco_t_file = os.path.join(out_dir, "{}-target.pk".format(pref))
+    with open(msmarco_A_file, "w") as f:
+        for query in train_queries:
+            for step in range(10):
+                f.write("{}\n".format(query))
+    with open(msmarco_B_file, "w") as f:
+        for pa in zip(*train_passages):
+            assert len(pa)==10
+            for l in pa:
+                f.write("{}\n".format(l))
+    with open(msmarco_t_file, "wb") as f:
+        pickle.dump(train_targets, f)
+
+
+
 
 
 def _batch(data, pad_idx, cls_idx, sep_idx, batch_size, accumulation_steps=1, question_first=True):

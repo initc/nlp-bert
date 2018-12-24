@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=0,1,2,3 python generate.py --data /nas/qsj/data/msmarco --question-first --valid-batch-size 2 --max-query-tokens 40 --max-passage-tokens 200  --pre-dir /nas/qsj/bert-model/bert-base-uncased --log-name log/msmarco_1210_valid.log
+CUDA_VISIBLE_DEVICES=0,1,2,3 python generate.py --path checkpoints/lr_5_msmacor_1207_wm0.17/checkpoints_1_42000.pt --data /nas/qsj/data/msmarco --question-first --valid-batch-size 2 --max-query-tokens 40 --max-passage-tokens 200  --pre-dir /nas/qsj/bert-model/bert-base-uncased --log-name log/msmarco_1210_valid.log

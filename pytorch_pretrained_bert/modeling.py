@@ -33,7 +33,6 @@ from torch.nn import CrossEntropyLoss
 
 from .file_utils import cached_path
 
-from torch.distributed import get_world_size, get_rank
 
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 

@@ -15,13 +15,12 @@ import config
 
 # import pdb
 from sklearn.metrics import accuracy_score
+from pytorch_pretrained_bert.modeling import BertConfig
 from pytorch_pretrained_bert.qa_modeling import MSmarco
 from pytorch_pretrained_bert.tokenization import whitespace_tokenize, BasicTokenizer, BertTokenizer
-from pytorch_pretrained_bert.data.datasets import make_msmarco
-from pytorch_pretrained_bert.optimization import BertAdam
 from pytorch_pretrained_bert.data.bert_dataset import MSmarco_iterator
 
-
+CONFIG_NAME = 'bert_config.json'
 
 def main(args):
 
@@ -37,8 +36,43 @@ def main(args):
 
 
     # num_train_steps = (96032//2//2)+(data_size-96032)//2
+    missing_keys = []
+    unexpected_keys = []
+    error_msgs = []
 
-    model = MSmarco.build_model(args, generate=True)
+    pre_dir = args.pre_dir
+    config_file = os.path.join(pre_dir, CONFIG_NAME)
+    bert_config = BertConfig.from_json_file(config_file)
+    model = MSmarco(bert_config)
+    logging.info("| load model from {}".format(args.path))
+    state_dict = torch.load(args.path, map_location=torch.device('cpu'))
+    metadata = getattr(state_dict, '_metadata', None)
+    # state_dict = state_dict.copy()
+    # if metadata is not None:
+    #     state_dict._metadata = metadata
+
+    def load(module, prefix=''):
+        local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
+        module._load_from_state_dict(
+            state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
+        for name, child in module._modules.items():
+            if child is not None:
+                load(child, prefix + name + '.')
+
+    load(model, prefix='module.')
+
+    if len(missing_keys) > 0:
+        # logger.info("Weights of {} not initialized from pretrained model: {}".format(
+        #     model.__class__.__name__, missing_keys))
+        print("| Weights of {} not initialized from pretrained model: {}".format(
+            model.__class__.__name__, missing_keys))
+    if len(unexpected_keys) > 0:
+        # logger.info("Weights from pretrained model not used in {}: {}".format(
+            # model.__class__.__name__, unexpected_keys))
+        print("Weights from pretrained model not used in {}: {}".format(
+            model.__class__.__name__, unexpected_keys))
+
+    # model._load_from_state_dict(state_dict, prefix="module.")
     model.to(device)
     if n_gpu > 1:
         model = torch.nn.DataParallel(model)

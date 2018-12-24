@@ -66,7 +66,7 @@ def main(args):
         model = torch.nn.DataParallel(model)
 
     param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'gamma', 'beta']
+    no_decay = ['bias', 'gamma', 'beta', 'layer_norm']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
 
@@ -76,6 +76,7 @@ def main(args):
                          lr=args.lr,
                          warmup=args.warmup_proportion,
                          t_total=num_train_steps)
+    logging.info("| init lr is {}".format(optimizer.get_lr()))
 
     global_update = 0
     for epochs in range(args.num_train_epochs):
@@ -189,7 +190,7 @@ def get_histest_score(targets, probs):
             hit_four += 1 
         if t[indic[0]]==1 or t[indic[1]]==1 or t[indic[2]]==1 or t[indic[3]]==1 or t[indic[4]]==1:
             hit_five += 1
-    return hit_one, hit_two, hit_three, answer_n
+    return hit_one, hit_two, hit_three, hit_four, hit_five, answer_n
 
 def save_checkpoint(args, model, epoch=0, updates=None, score=0, logging=None):
     best_scores = 0
